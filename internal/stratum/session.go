@@ -371,11 +371,14 @@ func (s *Session) handleXmrigSubmit(req Request) error {
 
 	s.adjustDifficulty()
 
+	// Record share for PPLNS tracking (no balance credit until block found)
 	if s.store != nil {
-		credit := s.difficulty
-		if s.cfg.PPSRewardPerDiff > 0 {
-			credit = s.difficulty * s.cfg.PPSRewardPerDiff
-		}
+		go s.store.RecordShare(context.Background(), s.username, jobID, s.difficulty, true, false, false)
+	}
+
+	// PPS mode: credit balance immediately per share (only if PPSRewardPerDiff > 0)
+	if s.store != nil && s.cfg.PPSRewardPerDiff > 0 {
+		credit := s.difficulty * s.cfg.PPSRewardPerDiff
 		var poolFee float64
 		if s.cfg.PoolFeeBps > 0 {
 			poolFee = credit * float64(s.cfg.PoolFeeBps) / 10000.0
@@ -383,9 +386,7 @@ func (s *Session) handleXmrigSubmit(req Request) error {
 		}
 		go func(username string, credit, poolFee float64, feeAddr string) {
 			ctx := context.Background()
-			// Credit miner balance (after pool fee deduction)
 			s.store.CreditBalance(ctx, username, credit)
-			// Credit pool fee to pool account (if configured)
 			if poolFee > 0 && feeAddr != "" {
 				s.store.CreditBalance(ctx, "__pool_fee__", poolFee)
 			}
@@ -512,11 +513,14 @@ func (s *Session) handleSubmit(req Request) error {
 
 	s.adjustDifficulty()
 
+	// Record share for PPLNS tracking (no balance credit until block found)
 	if s.store != nil {
-		credit := s.difficulty
-		if s.cfg.PPSRewardPerDiff > 0 {
-			credit = s.difficulty * s.cfg.PPSRewardPerDiff
-		}
+		go s.store.RecordShare(context.Background(), s.username, jobID, s.difficulty, true, false, false)
+	}
+
+	// PPS mode: credit balance immediately per share (only if PPSRewardPerDiff > 0)
+	if s.store != nil && s.cfg.PPSRewardPerDiff > 0 {
+		credit := s.difficulty * s.cfg.PPSRewardPerDiff
 		var poolFee float64
 		if s.cfg.PoolFeeBps > 0 {
 			poolFee = credit * float64(s.cfg.PoolFeeBps) / 10000.0
@@ -524,9 +528,7 @@ func (s *Session) handleSubmit(req Request) error {
 		}
 		go func(username string, credit, poolFee float64, feeAddr string) {
 			ctx := context.Background()
-			// Credit miner balance (after pool fee deduction)
 			s.store.CreditBalance(ctx, username, credit)
-			// Credit pool fee to pool account (if configured)
 			if poolFee > 0 && feeAddr != "" {
 				s.store.CreditBalance(ctx, "__pool_fee__", poolFee)
 			}

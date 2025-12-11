@@ -111,13 +111,36 @@ func main() {
 
 	// Start payout service (sends to username-as-address and records payouts).
 	var stopPayout func()
+	var stopPPLNS chan struct{}
 	if store != nil {
+		// Start PPLNS reward distributor (credits balances when blocks are confirmed)
+		pplns := payout.NewPPLNSDistributor(store, cfg.PoolFeeBps, cfg.PoolFeeAddress, cfg.BlockConfirmations)
+
+		// Update network difficulty from fetcher if available
+		if networkFetcher != nil {
+			go func() {
+				ticker := time.NewTicker(60 * time.Second)
+				defer ticker.Stop()
+				for range ticker.C {
+					if err := networkFetcher.Fetch(context.Background()); err == nil {
+						stats := networkFetcher.Get()
+						if stats.Difficulty > 0 {
+							pplns.SetNetworkDifficulty(stats.Difficulty)
+						}
+					}
+				}
+			}()
+		}
+
+		stopPPLNS = pplns.StartPeriodicCheck(30 * time.Second)
+
 		paySvc := payout.New(store, wallet, cfg.PayoutThreshold, cfg.PayoutBatchCron)
 		stopPayout, err = paySvc.Start()
 		if err != nil {
 			log.Fatalf("start payout: %v", err)
 		}
 		defer stopPayout()
+		defer func() { close(stopPPLNS) }()
 
 		// Connect payout service to API for manual payout trigger
 		apiSrv.SetPayoutRunner(paySvc)

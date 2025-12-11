@@ -96,8 +96,10 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
             status text not null,
 			hash text,
 			confirmations integer not null default 0,
+			paid boolean not null default false,
             created_at timestamptz not null default now()
 		)`,
+		`alter table blocks add column if not exists paid boolean not null default false`,
 		`create table if not exists payouts (
 			id bigserial primary key,
 			miner_id integer not null references miners(id),
@@ -431,3 +433,101 @@ func (s *Store) GetAllBalances(ctx context.Context) ([]BalanceRow, error) {
 
 // Close closes the underlying DB.
 func (s *Store) Close() error { return s.db.Close() }
+
+// ShareContribution represents a miner's contribution in a PPLNS window.
+type ShareContribution struct {
+	Username   string
+	Difficulty float64 // Total difficulty contributed
+}
+
+// GetPPLNSShares returns share contributions within the last N difficulty units.
+// This implements PPLNS (Pay Per Last N Shares) by looking at recent accepted shares.
+func (s *Store) GetPPLNSShares(ctx context.Context, windowDifficulty float64) ([]ShareContribution, float64, error) {
+	// Get shares in reverse chronological order until we hit the window size
+	rows, err := s.db.QueryContext(ctx, `
+		WITH recent_shares AS (
+			SELECT m.username, sh.difficulty, sh.created_at,
+				SUM(sh.difficulty) OVER (ORDER BY sh.created_at DESC) as running_total
+			FROM shares sh
+			JOIN miners m ON m.id = sh.miner_id
+			WHERE sh.accepted = true
+			ORDER BY sh.created_at DESC
+		)
+		SELECT username, SUM(difficulty) as total_diff
+		FROM recent_shares
+		WHERE running_total <= $1 * 2  -- Take shares up to 2x window to ensure we have enough
+		GROUP BY username
+		ORDER BY total_diff DESC`, windowDifficulty)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var contributions []ShareContribution
+	var totalDifficulty float64
+	for rows.Next() {
+		var c ShareContribution
+		if err := rows.Scan(&c.Username, &c.Difficulty); err != nil {
+			return nil, 0, err
+		}
+		contributions = append(contributions, c)
+		totalDifficulty += c.Difficulty
+	}
+	return contributions, totalDifficulty, rows.Err()
+}
+
+// GetSharesSinceBlock returns share contributions since a specific time (for block-based PPLNS).
+func (s *Store) GetSharesSinceBlock(ctx context.Context, since time.Time) ([]ShareContribution, float64, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT m.username, SUM(sh.difficulty) as total_diff
+		FROM shares sh
+		JOIN miners m ON m.id = sh.miner_id
+		WHERE sh.accepted = true AND sh.created_at >= $1
+		GROUP BY m.username
+		ORDER BY total_diff DESC`, since)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var contributions []ShareContribution
+	var totalDifficulty float64
+	for rows.Next() {
+		var c ShareContribution
+		if err := rows.Scan(&c.Username, &c.Difficulty); err != nil {
+			return nil, 0, err
+		}
+		contributions = append(contributions, c)
+		totalDifficulty += c.Difficulty
+	}
+	return contributions, totalDifficulty, rows.Err()
+}
+
+// GetUnpaidConfirmedBlocks returns blocks that are confirmed but haven't had rewards distributed.
+func (s *Store) GetUnpaidConfirmedBlocks(ctx context.Context, requiredConfirmations int) ([]BlockRow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT job_id, height, status, COALESCE(hash, ''), confirmations, created_at
+		FROM blocks
+		WHERE status = 'confirmed' AND confirmations >= $1 AND paid = false
+		ORDER BY created_at ASC`, requiredConfirmations)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []BlockRow
+	for rows.Next() {
+		var r BlockRow
+		if err := rows.Scan(&r.JobID, &r.Height, &r.Status, &r.Hash, &r.Confirms, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// MarkBlockPaid marks a block as having had rewards distributed.
+func (s *Store) MarkBlockPaid(ctx context.Context, hash string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE blocks SET paid = true WHERE hash = $1`, hash)
+	return err
+}
