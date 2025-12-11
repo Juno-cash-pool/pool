@@ -27,8 +27,8 @@ A stratum mining pool for [Juno Cash](https://juno.cash) — a privacy-focused c
 
 ```bash
 # Clone the repository
-git clone https://github.com/Aryamanraj/juno-cash-pool.git
-cd juno-cash-pool
+git clone https://github.com/Juno-cash-pool/pool.git
+cd pool
 
 # Copy and configure
 cp config.example.yaml config.yaml
@@ -64,7 +64,7 @@ See [config.example.yaml](config.example.yaml) for all options.
 
 ### Using XMRig
 
-Download the patched XMRig from [xmrig-junocash releases](https://github.com/Aryamanraj/xmrig-junocash/releases).
+Download the patched XMRig from [xmrig-junocash releases](https://github.com/Juno-cash-pool/juno-rig/releases).
 
 **Command line:**
 ```bash
@@ -173,5 +173,5 @@ MIT License - see [LICENSE](LICENSE) for details.
 - 🌐 **Pool:** [junocashpool.com](https://junocashpool.com)
 - 💻 **Juno Cash:** [juno.cash](https://juno.cash)
 - 📦 **Juno Node:** [github.com/juno-cash/junocash](https://github.com/juno-cash/junocash)
-- ⛏️ **XMRig Miner:** [github.com/Aryamanraj/xmrig-junocash](https://github.com/Aryamanraj/xmrig-junocash)
+- ⛏️ **XMRig Miner:** [github.com/Juno-cash-pool/juno-rig](https://github.com/Juno-cash-pool/juno-rig)
 
