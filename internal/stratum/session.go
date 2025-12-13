@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,6 +45,27 @@ type Session struct {
 	shareCount int64
 	shareStart time.Time
 	mu         sync.Mutex
+}
+
+// isValidJunoAddress checks if the address is a valid Juno address.
+// Accepts:
+// - j1... (mainnet orchard/shielded) - preferred
+// - jregtest1... (regtest orchard/shielded)
+// - t1... (mainnet transparent) - legacy support
+// - tm... (testnet/regtest transparent) - legacy support
+func isValidJunoAddress(addr string) bool {
+	if len(addr) < 10 {
+		return false
+	}
+	// Shielded addresses (preferred)
+	if strings.HasPrefix(addr, "j1") || strings.HasPrefix(addr, "jregtest1") || strings.HasPrefix(addr, "jtestnet1") {
+		return len(addr) > 50 // Orchard addresses are long
+	}
+	// Transparent addresses (legacy support)
+	if strings.HasPrefix(addr, "t1") || strings.HasPrefix(addr, "tm") {
+		return len(addr) >= 34 && len(addr) <= 36
+	}
+	return false
 }
 
 func NewSession(cfg config.Config, conn net.Conn, extranonce1 string, getTemplate func() *job.Template, getJob func(string) *job.Template, submitter *job.Submitter, store *db.Store) *Session {
@@ -184,12 +206,18 @@ func (s *Session) handleLogin(req Request) error {
 		s.username = "anonymous"
 	}
 
+	// Validate address format (should be j1/jregtest1 for shielded, or t1/tm for transparent)
+	if s.username != "anonymous" && !isValidJunoAddress(s.username) {
+		log.Printf("session %s: invalid address format: %s (expected j1.../jregtest1... shielded address)", s.extranonce1, s.username)
+		// Still allow mining but warn - they won't receive payouts
+	}
+
 	s.subscribed = true
 	s.authorized = true
 	s.isXmrig = true // Mark as xmrig client
 
-	// For xmrig, the login IS the payout address - store it
-	if s.store != nil && s.username != "anonymous" {
+	// For xmrig, the login IS the payout address - store it if valid
+	if s.store != nil && s.username != "anonymous" && isValidJunoAddress(s.username) {
 		go s.store.SetPayoutAddress(context.Background(), s.username, s.username)
 	}
 
@@ -275,9 +303,14 @@ func (s *Session) handleXmrigSubmit(req Request) error {
 		return s.fail(fmt.Errorf("missing result"))
 	}
 
-	// Juno uses 32-byte nonce (64 hex chars)
-	if len(nonceHex) != 64 {
-		return s.fail(fmt.Errorf("wrong nonce size: expected 64 hex chars, got %d", len(nonceHex)))
+	// Juno uses 32-byte nonce (64 hex chars), but standard RandomX uses 4-byte (8 hex chars)
+	// Accept both and pad short nonces with zeros
+	if len(nonceHex) == 8 {
+		// Standard 4-byte nonce - pad to 32 bytes (first 4 bytes are the nonce, rest zeros)
+		nonceHex = nonceHex + "000000000000000000000000000000000000000000000000000000000000"
+		log.Printf("session %s: padded 4-byte nonce to 32 bytes", s.extranonce1)
+	} else if len(nonceHex) != 64 {
+		return s.fail(fmt.Errorf("wrong nonce size: expected 8 or 64 hex chars, got %d", len(nonceHex)))
 	}
 
 	nonceBin, err := hex.DecodeString(nonceHex)

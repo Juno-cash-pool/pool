@@ -28,6 +28,7 @@ type Config struct {
 	PayoutThreshold     float64 `yaml:"payout_threshold"`
 	PayoutBatchCron     string  `yaml:"payout_batch_cron"`
 	PayoutFromAddress   string  `yaml:"payout_from_address"` // shielded/unified address to send payouts from
+	MiningAddress       string  `yaml:"mining_address"`      // transparent address that receives coinbase (for auto-shielding)
 }
 
 // Load reads YAML config from disk.

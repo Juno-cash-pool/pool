@@ -27,4 +27,8 @@ pps_reward_per_diff: 0.0                  # Coins per difficulty unit (PPS place
 block_confirmations: 10                   # Confirmations before crediting block reward
 payout_threshold: 0.001                   # Minimum balance for payout (in JUNO)
 payout_batch_cron: "0 * * * *"            # Payout schedule (every hour)
-payout_from_address: "YOUR_POOL_ORCHARD_ADDRESS"  # Shielded address holding pool funds
+payout_from_address: "YOUR_POOL_ORCHARD_ADDRESS"  # Shielded/orchard address holding pool funds (j1...)
+
+# Auto-shielding: Pool mines to transparent address, then auto-shields to orchard for privacy
+mining_address: "YOUR_POOL_MINING_T1_ADDRESS"     # Transparent address (t1...) that receives coinbase
+# The pool will automatically shield mature coinbase from mining_address -> payout_from_address

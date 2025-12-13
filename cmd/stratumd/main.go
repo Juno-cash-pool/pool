@@ -112,6 +112,7 @@ func main() {
 	// Start payout service (sends to username-as-address and records payouts).
 	var stopPayout func()
 	var stopPPLNS chan struct{}
+	var stopShield chan struct{}
 	if store != nil {
 		// Start PPLNS reward distributor (credits balances when blocks are confirmed)
 		pplns := payout.NewPPLNSDistributor(store, cfg.PoolFeeBps, cfg.PoolFeeAddress, cfg.BlockConfirmations)
@@ -133,6 +134,18 @@ func main() {
 		}
 
 		stopPPLNS = pplns.StartPeriodicCheck(30 * time.Second)
+
+		// Start auto-shielding service if mining address is configured
+		if cfg.MiningAddress != "" && cfg.PayoutFromAddress != "" {
+			shieldSvc, err := payout.NewShieldService(cfg.NodeRPCURL, cfg.MiningAddress, cfg.PayoutFromAddress, 0.01)
+			if err != nil {
+				log.Printf("warn: shield service disabled: %v", err)
+			} else {
+				stopShield = shieldSvc.Start(5 * time.Minute) // Check every 5 minutes
+				log.Printf("auto-shielding enabled: %s -> %s", cfg.MiningAddress[:12], cfg.PayoutFromAddress[:16])
+				defer func() { close(stopShield) }()
+			}
+		}
 
 		paySvc := payout.New(store, wallet, cfg.PayoutThreshold, cfg.PayoutBatchCron)
 		stopPayout, err = paySvc.Start()
